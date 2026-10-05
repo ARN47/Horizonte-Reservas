@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca Horizonte · Reservas</title>
+<style>
+:root{--ink:#1f2a37;--mute:#5b6773;--bg:#eef2f5;--panel:#fff;--line:#d5dde4;--acc:#0f5c6e;--acc2:#0b4755}
+@media (prefers-color-scheme:dark){:root{--ink:#e6edf3;--mute:#9aa7b3;--bg:#12181d;--panel:#1a2229;--line:#2f3b45;--acc:#4fb3c8;--acc2:#7cc9da}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+header{background:var(--acc2);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.25rem}
+main{max-width:980px;margin:0 auto;padding:20px;display:grid;gap:20px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+h2{margin:0 0 12px;font-size:1.1rem}
+label{display:block;font-size:.9rem;color:var(--mute);margin-bottom:4px}
+input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--bg);color:var(--ink)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
+button{font:inherit;padding:9px 16px;border:0;border-radius:6px;cursor:pointer;background:var(--acc);color:#fff}
+button.sec{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+button.mal{background:#991b1b}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}
+header button{background:transparent;border:1px solid #fff}
+.msg{margin:12px 0 0;padding:10px 12px;border-radius:6px;display:none}
+.msg.ok{display:block;background:#dcfce7;color:#14532d}
+.msg.err{display:block;background:#fee2e2;color:#7f1d1d}
+.item{border-top:1px solid var(--line);padding:12px 0;display:grid;gap:6px}
+.item:first-child{border-top:0}
+.top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
+.badge{padding:2px 10px;border-radius:99px;font-weight:600;font-size:.85rem}
+.PENDIENTE{background:#fef3c7;color:#78350f}.CONFIRMADA{background:#dcfce7;color:#14532d}.RECHAZADA{background:#fee2e2;color:#7f1d1d}
+.small{font-size:.9rem;color:var(--mute)}
+.acciones{display:flex;gap:8px;flex-wrap:wrap}
+.vacio{color:var(--mute);margin:0}
+.hist{font-size:.85rem;color:var(--mute);margin:0;padding-left:18px}
+.hide{display:none!important}
+#login{max-width:380px;margin:40px auto}
+</style>
+</head>
+<body>
+<header>
+  <h1>Biblioteca Horizonte · Reserva de equipos</h1>
+  <div id="sesion" class="hide"><span id="quien"></span> <button id="salir">Salir</button></div>
+</header>
+<main>
+  <section id="login">
+    <h2>Ingresar</h2>
+    <label for="u">Usuario</label><input id="u" autocomplete="username">
+    <label for="c" style="margin-top:10px">Clave</label><input id="c" type="password" autocomplete="current-password">
+    <p><button id="entrar">Ingresar</button></p>
+    <div id="m-login" class="msg" role="status"></div>
+    <p class="small">Usuarios de prueba: lucia / lucia123 · ana / ana123 · marcos / marcos123 · sofia / sofia123</p>
+  </section>
+
+  <section id="nueva" class="hide">
+    <h2>Nueva solicitud</h2>
+    <div class="row">
+      <div><label for="recurso">Recurso</label><select id="recurso"></select></div>
+      <div><label for="fecha">Fecha</label><input id="fecha" type="date"></div>
+      <div><label for="modulo">Módulo horario</label><select id="modulo"></select></div>
+      <div><button id="enviar">Enviar solicitud</button></div>
+    </div>
+    <div id="m-nueva" class="msg" role="status"></div>
+    <p class="small">Una solicitud queda PENDIENTE hasta que Lucía la confirme. Pendiente no garantiza el recurso.</p>
+  </section>
+
+  <section id="sols" class="hide">
+    <div class="top"><h2 id="t-sols">Solicitudes</h2>
+      <div><label for="f-estado" class="small">Filtrar por estado</label>
+      <select id="f-estado"><option value="">Todas</option><option>PENDIENTE</option><option>CONFIRMADA</option><option>RECHAZADA</option></select></div></div>
+    <div id="m-sols" class="msg" role="status"></div>
+    <div id="lista-sols"></div>
+  </section>
+
+  <section id="res" class="hide">
+    <h2>Reservas confirmadas</h2>
+    <div class="row">
+      <div><label for="r-recurso">Recurso</label><select id="r-recurso"></select></div>
+      <div><label for="r-fecha">Fecha</label><input id="r-fecha" type="date"></div>
+      <div><button id="r-buscar" class="sec">Consultar</button></div>
+    </div>
+    <div id="lista-res" style="margin-top:12px"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let yo = null;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function api(ruta, metodo = 'GET', cuerpo) {
+  const r = await fetch('/api' + ruta, {
+    method: metodo, headers: {'Content-Type': 'application/json'},
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined});
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  return {ok: r.ok, status: r.status, data};
+}
+function aviso(id, texto, ok) {
+  const e = $(id); e.textContent = texto; e.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+function limpiar(id) { $(id).className = 'msg'; }
+
+async function entrar() {
+  const r = await api('/login', 'POST', {usuario: $('u').value, clave: $('c').value});
+  if (!r.ok) return aviso('m-login', r.data.error || 'No se pudo ingresar.', false);
+  yo = r.data; iniciar();
+}
+async function salir() { await api('/logout', 'POST'); location.reload(); }
+
+async function iniciar() {
+  $('login').classList.add('hide');
+  $('sesion').classList.remove('hide');
+  $('quien').textContent = yo.nombre + ' · ';
+  const esDoc = yo.rol === 'DOCENTE';
+  $('nueva').classList.toggle('hide', !esDoc);
+  $('sols').classList.remove('hide'); $('res').classList.remove('hide');
+  $('t-sols').textContent = esDoc ? 'Mis solicitudes' : 'Solicitudes de los docentes';
+  if (!esDoc) $('f-estado').value = 'PENDIENTE';
+  const r = await api('/recursos');
+  const opt = r.data.recursos.map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('');
+  $('recurso').innerHTML = opt;
+  $('r-recurso').innerHTML = '<option value="">Todos</option>' + opt;
+  $('modulo').innerHTML = r.data.modulos.map(m => `<option value="${m.id}">Módulo ${m.id} (${m.horario})</option>`).join('');
+  $('fecha').min = new Date().toISOString().slice(0, 10);
+  cargarSols(); cargarRes();
+}
+
+function tarjeta(s, acciones) {
+  return `<div class="item">
+    <div class="top"><strong>${esc(s.recurso)}</strong>
+      <span class="badge ${s.estado}">${s.estado}</span></div>
+    <div>${esc(s.fecha)} · Módulo ${s.modulo} (${esc(s.modulo_horario)})${yo.rol === 'BIBLIOTECARIA' ? ' · Docente: ' + esc(s.docente) : ''}</div>
+    <div class="small">${esc(s.mensaje)}</div>${acciones || ''}</div>`;
+}
+
+async function cargarSols() {
+  const est = $('f-estado').value;
+  const r = await api('/solicitudes' + (est ? '?estado=' + est : ''));
+  if (!r.ok) return aviso('m-sols', r.data.error || 'Error al cargar.', false);
+  $('lista-sols').innerHTML = r.data.length ? r.data.map(s => {
+    let a = `<div class="acciones"><button class="sec" onclick="verHist(${s.id})">Ver historial</button>`;
+    if (yo.rol === 'BIBLIOTECARIA' && s.estado === 'PENDIENTE')
+      a += `<button onclick="resolver(${s.id},'confirmar')">Confirmar</button><button class="mal" onclick="resolver(${s.id},'rechazar')">Rechazar</button>`;
+    return tarjeta(s, a + `</div><ul class="hist hide" id="h${s.id}"></ul>`);
+  }).join('') : '<p class="vacio">No hay solicitudes para mostrar.</p>';
+}
+
+async function enviar() {
+  const r = await api('/solicitudes', 'POST', {recurso_id: $('recurso').value, fecha: $('fecha').value, modulo: $('modulo').value});
+  if (r.ok) { aviso('m-nueva', 'Solicitud enviada. Estado: PENDIENTE (todavía no está confirmada).', true); cargarSols(); }
+  else aviso('m-nueva', r.data.error || 'No se pudo enviar.', false);
+}
+
+async function resolver(id, accion) {
+  const r = await api(`/solicitudes/${id}/${accion}`, 'POST');
+  aviso('m-sols', r.ok ? `Solicitud ${r.data.estado.toLowerCase()}.` : r.data.error, r.ok);
+  cargarSols(); cargarRes();
+}
+
+async function verHist(id) {
+  const ul = $('h' + id);
+  if (!ul.classList.contains('hide')) return ul.classList.add('hide');
+  const r = await api(`/solicitudes/${id}/historial`);
+  ul.innerHTML = r.data.map(h => `<li>${esc(h.fecha_hora.replace('T', ' '))} · ${esc(h.estado)} · ${esc(h.usuario)}</li>`).join('');
+  ul.classList.remove('hide');
+}
+
+async function cargarRes() {
+  const q = new URLSearchParams();
+  if ($('r-recurso').value) q.set('recurso_id', $('r-recurso').value);
+  if ($('r-fecha').value) q.set('fecha', $('r-fecha').value);
+  const r = await api('/reservas?' + q);
+  $('lista-res').innerHTML = r.data.length ? r.data.map(s => tarjeta(s)).join('') : '<p class="vacio">No hay reservas confirmadas con ese filtro.</p>';
+}
+
+$('entrar').onclick = entrar; $('salir').onclick = salir; $('enviar').onclick = enviar;
+$('f-estado').onchange = cargarSols; $('r-buscar').onclick = cargarRes;
+$('c').onkeydown = e => { if (e.key === 'Enter') entrar(); };
+api('/yo').then(r => { if (r.ok) { yo = r.data; iniciar(); } });
+</script>
+</body>
+</html>
